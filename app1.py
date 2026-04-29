@@ -71,6 +71,7 @@ if st.session_state.button_pressed == "記入":
     with col2:
         if st.button("確定"):
             if content.strip() != "":
+                
                 new_row = pd.DataFrame({
                     "日時": [date_time],
                     "カテゴリ": [kinds],
@@ -83,18 +84,20 @@ if st.session_state.button_pressed == "記入":
                 st.success("メモを追加しました")
 
                 status_area = st.empty()
-
                 stream = client.chat.completions.create(
                     messages=[{"role": "user", "content": f"「{content}」を50文字程度で褒めて"}],
                     model="llama-3.3-70b-versatile",
                     stream=True,
                 )
 
-            full_response = ""
-            for chunk in stream:
-                if chunk.choices[0].delta.content:
-                    full_response += chunk.choices[0].delta.content
-                    status_area.info(f"{full_response}")
+                full_response = ""
+                for chunk in stream:
+                    if chunk.choices[0].delta.content:
+                        full_response += chunk.choices[0].delta.content
+                        status_area.info(f"{full_response}")
+            
+            else:
+                st.warning("内容を入力してください")
 
 
 # -----------------------------
