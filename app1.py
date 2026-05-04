@@ -1,5 +1,5 @@
-# pip install streamlit,python -m pip install groqを最初に入力
-# 実行時に streamlit run app1.py を入力
+# pip install streamlit,python -m pip install groq を最初にターミナルに入力
+# 実行時にターミナルに streamlit run app1.py を入力
 
 from groq import Groq
 import os
@@ -35,7 +35,7 @@ if "button_pressed" not in st.session_state:
     st.session_state.button_pressed = None
 
 with col1:
-    if st.button("記入"):
+    if st.button("メモを記入"):
         st.session_state.button_pressed = "記入"
 
 with col2:
