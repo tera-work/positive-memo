@@ -82,14 +82,17 @@ if st.session_state.button_pressed == "記入":
                 st.success("メモを追加しました")
 
                 status_area = st.empty()
+                full_response = ""
+
                 try:
                     stream = client.chat.completions.create(
-                        messages=[{"role": "user", "content": f"「{content}」を50文字程度で褒めて"}],
+                        messages=[{
+                            "role": "user",
+                            "content": f"「{content}」を50文字程度で褒めて"
+                        }],
                         model="llama-3.3-70b-versatile",
                         stream=True,
                     )
-
-                    full_response = ""
 
                     for chunk in stream:
                         if chunk.choices[0].delta.content:
@@ -98,12 +101,6 @@ if st.session_state.button_pressed == "記入":
 
                 except Exception as e:
                     st.error(f"AI応答エラー: {e}")
-
-                full_response = ""
-                for chunk in stream:
-                    if chunk.choices[0].delta.content:
-                        full_response += chunk.choices[0].delta.content
-                        status_area.info(f"{full_response}")
             
             else:
                 st.warning("内容を入力してください")
