@@ -8,6 +8,7 @@ import os
 from dotenv import load_dotenv
 import streamlit as st
 import pandas as pd
+from datetime import timezone, timedelta
 
 load_dotenv()
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
@@ -19,6 +20,101 @@ supabase = create_client(
     SUPABASE_KEY
 )
 
+if (
+    "session" in st.session_state
+    and st.session_state.session
+):
+    supabase.auth.set_session(
+        st.session_state.session.access_token,
+        st.session_state.session.refresh_token,
+    )
+
+if "user" not in st.session_state:
+    st.session_state.user = None
+
+mode = st.sidebar.radio(
+    "利用方法",
+    ["ゲスト", "ログイン", "新規登録"]
+)
+
+if mode == "新規登録":
+    st.sidebar.subheader("新規登録")
+
+    email = st.sidebar.text_input(
+        "メールアドレス",
+        key="signup_email"
+    )
+
+    password = st.sidebar.text_input(
+        "パスワード",
+        type="password",
+        key="signup_password"
+    )
+
+    if st.sidebar.button("登録"):
+
+        try:
+            supabase.auth.sign_up({
+                "email": email,
+                "password": password
+            })
+
+            st.sidebar.success("登録しました！")
+
+        except Exception as e:
+            st.sidebar.error(f"登録失敗: {e}")
+
+if mode == "ログイン":
+    st.sidebar.subheader("ログイン")
+
+    email = st.sidebar.text_input(
+        "メールアドレス",
+        key="login_email"
+    )
+
+    password = st.sidebar.text_input(
+        "パスワード",
+        type="password",
+        key="login_password"
+    )
+
+    if st.sidebar.button("ログイン"):
+
+        try:
+            response = supabase.auth.sign_in_with_password({
+                "email": email,
+                "password": password
+            })
+
+            st.session_state.user = response.user
+            st.session_state.session = response.session
+
+            st.sidebar.success(
+                f"{response.user.email} としてログインしました"
+            )
+
+            st.rerun()
+
+        except Exception as e:
+            st.sidebar.error(
+                f"ログイン失敗: {e}"
+            )
+
+if st.session_state.user:
+
+    st.sidebar.success(
+        f"ログイン中\n\n{st.session_state.user.email}"
+    )
+
+    if st.sidebar.button("ログアウト"):
+
+        supabase.auth.sign_out()
+
+        st.session_state.user = None
+        st.session_state.session = None
+
+        st.rerun()
+
 st.title("ポジティブメモ")
 
 st.divider()
@@ -29,8 +125,26 @@ st.divider()
 
 st.write("日々の「頑張ったこと」「嬉しかったこと」を記録し、自分の成長や小さな幸せに気づけるアプリです。気持ちが落ち込んだときは、過去のメモを振り返ることで、自分の積み重ねを実感し、気持ちを整えることができます。")
 
-result = supabase.table("memo").select("*").execute()
-memo_df = pd.DataFrame(result.data)
+if st.session_state.user:
+
+    result = (
+        supabase
+        .table("memo")
+        .select("*")
+        .eq("user_id", st.session_state.user.id)
+        .execute()
+    )
+
+    memo_df = pd.DataFrame(result.data)
+
+else:
+
+    if "memo_df" not in st.session_state:
+        st.session_state.memo_df = pd.DataFrame(
+            columns=["created_at", "category", "content"]
+        )
+
+    memo_df = st.session_state.memo_df.copy()
 
 memo_count = len(memo_df)
 
@@ -74,11 +188,22 @@ if st.session_state.button_pressed == "記入":
     with col2:
         if st.button("確定"):
             if content.strip() != "":
-                
-                supabase.table("memo").insert({
-                    "category": kinds,
-                    "content": content
-                }).execute()
+                if st.session_state.user:
+                    supabase.table("memo").insert({
+                        "user_id": st.session_state.user.id,
+                        "category": kinds,
+                        "content": content
+                    }).execute()
+
+                else:
+                    st.session_state.memo_df = pd.concat([
+                        st.session_state.memo_df,
+                        pd.DataFrame([{
+                            "created_at": pd.Timestamp.now(tz="UTC"),
+                            "category": kinds,
+                            "content": content
+                        }])
+                    ])
                 st.success("メモを追加しました")
 
                 status_area = st.empty()
@@ -88,7 +213,11 @@ if st.session_state.button_pressed == "記入":
                     stream = client.chat.completions.create(
                         messages=[{
                             "role": "user",
-                            "content": f"「{content}」を50文字程度で褒めて"
+                            "content": f"""あなたは優しく前向きなカウンセラーです。
+                            以下の出来事を50文字程度で温かく褒めてください。
+
+                            {content}
+                            """
                         }],
                         model="llama-3.3-70b-versatile",
                         stream=True,
@@ -110,15 +239,24 @@ if st.session_state.button_pressed == "記入":
 #  振り返り画面（削除機能付き）
 # -----------------------------
 elif st.session_state.button_pressed == "振り返る":
+    if st.session_state.user:
+        result = (
+            supabase
+            .table("memo")
+            .select("*")
+            .eq("user_id", st.session_state.user.id)
+            .execute()
+        )
 
-    result = (
-        supabase
-        .table("memo")
-        .select("*")
-        .execute()
-    )
+        memo_df = pd.DataFrame(result.data)
 
-    memo_df = pd.DataFrame(result.data)
+    else:
+        if "memo_df" not in st.session_state:
+            st.session_state.memo_df = pd.DataFrame(
+                columns=["created_at", "category", "content"]
+            )
+
+        memo_df = st.session_state.memo_df.copy()
 
     if len(memo_df) == 0:
         st.header("まだメモがありません。")
@@ -158,18 +296,44 @@ elif st.session_state.button_pressed == "振り返る":
         #   各行に削除ボタンを配置
         # ======================================================
         for i, row in filtered_df.iterrows():
+            display_time = (
+                pd.to_datetime(row["created_at"], utc=True)
+                .tz_convert("Asia/Tokyo")
+                .strftime("%Y-%m-%d %H:%M")
+            )
+
             with st.expander(
-                f"{row['created_at']} / {row['category']}"
+                f"{display_time} / {row['category']}"
             ):
                 st.write(row["content"])
 
                 # 削除処理
-                if st.button("このメモを削除",key=f"delete_{row['id']}"):
-                    
-                    supabase.table("memo") \
-                        .delete() \
-                        .eq("id", row["id"]) \
-                        .execute()
+                if st.session_state.user:
 
-                    st.success("削除しました")
-                    st.rerun()
+                    if st.button(
+                        "このメモを削除",
+                        key=f"delete_{row['id']}"
+                    ):
+
+                        supabase.table("memo") \
+                            .delete() \
+                            .eq("id", row["id"]) \
+                            .execute()
+
+                        st.success("削除しました")
+                        st.rerun()
+
+                else:
+                    if st.button(
+                        "このメモを削除",
+                        key=f"guest_delete_{i}"
+                    ):
+
+                        st.session_state.memo_df = (
+                            st.session_state.memo_df
+                            .drop(filtered_df.index[i])
+                            .reset_index(drop=True)
+                        )
+
+                        st.success("削除しました")
+                        st.rerun()
